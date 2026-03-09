@@ -95,7 +95,7 @@ export default function FeaturesTab() {
                 {["🍕","🌿","⚡","🔥","🥗","🫒","🧀","🍅","🌾","⭐","🎉","🏆","❤️","🌍","✨","🍃"].map(emoji => (
                   <button key={emoji} onClick={() => updateFeature(i, "icon", emoji)}
                     className={`text-xl p-1.5 rounded-lg transition-all ${f.icon === emoji ? "ring-2 bg-amber-50" : "hover:bg-slate-50"}`}
-                    style={{ ringColor: settings.primaryColor }}>
+                    style={{ "--tw-ring-color": settings.primaryColor } as React.CSSProperties}>
                     {emoji}
                   </button>
                 ))}
