@@ -1,7 +1,6 @@
 [build]
-  base = "woodiz-fixed"
   command = "npm run build"
-  publish = "woodiz-fixed/.next"
+  publish = ".next"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
