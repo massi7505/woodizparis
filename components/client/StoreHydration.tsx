@@ -1,8 +1,10 @@
 // components/client/StoreHydration.tsx
+// Charge le store depuis MySQL au démarrage, puis sauvegarde les changements.
 "use client";
 import { useEffect, useRef } from "react";
 import { useWoodizStore } from "@/lib/store";
-import { saveImage, imgKey } from "@/lib/imageDb";
+
+// ─── Détection locale navigateur ────────────────────────────────────────────
 
 function detectLocale(supported: string[]): string | null {
   if (typeof navigator === "undefined") return null;
@@ -14,56 +16,85 @@ function detectLocale(supported: string[]): string | null {
   return null;
 }
 
-async function saveToKV(state: any) {
-  try {
-    const payload = {
-      settings: {
-        ...state.settings,
-        sliderSlides: state.settings.sliderSlides?.map((s: any, i: number) => ({
-          ...s,
-          value: s.type === "image" && s.value?.startsWith("data:") ? `__idb:slider:${i}` : s.value,
-        })),
-        faviconUrl: state.settings.faviconUrl?.startsWith("data:") ? "__idb:favicon:0" : state.settings.faviconUrl,
-      },
-      categories: state.categories,
-      products: state.products.map((p: any) => ({
-        ...p,
-        img: p.img?.startsWith("data:") ? `__idb:product:${p.id}` : p.img,
-      })),
-      promos: state.promos.map((p: any) => ({
-        ...p,
-        image: p.image?.startsWith("data:") ? `__idb:promo:${p.id}` : p.image,
-      })),
-      faqs: state.faqs,
-      legalPages: state.legalPages,
-      reviews: state.reviews,
-      googleReviewPopup: state.googleReviewPopup,
-      translations: state.translations,
-      activeLocale: state.activeLocale,
-      adminCredentials: state.adminCredentials,
-    };
-    await fetch("/api/store", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  } catch (e) {
-    console.warn("[StoreHydration] KV save failed:", e);
-  }
-}
+// ─── Chargement depuis MySQL ─────────────────────────────────────────────────
 
-async function loadFromKV(): Promise<any | null> {
+async function loadFromDB(): Promise<any | null> {
   try {
     const res = await fetch("/api/store");
     const json = await res.json();
     return json?.ok && json?.data ? json.data : null;
   } catch (e) {
-    console.warn("[StoreHydration] KV load failed:", e);
+    console.warn("[StoreHydration] Chargement DB échoué:", e);
     return null;
   }
 }
 
-let kvSaveTimeout: ReturnType<typeof setTimeout> | null = null;
+// ─── Sauvegarde vers MySQL ───────────────────────────────────────────────────
+
+let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+// Empêche la boucle infinie : setState (depuis serveur) → subscribe → save → setState...
+let isApplyingServerData = false;
+
+async function saveToDB(state: any): Promise<void> {
+  try {
+    const payload = {
+      settings:          state.settings,
+      categories:        state.categories,
+      products:          state.products,
+      promos:            state.promos,
+      faqs:              state.faqs,
+      legalPages:        state.legalPages,
+      reviews:           state.reviews,
+      googleReviewPopup: state.googleReviewPopup,
+      translations:      state.translations,
+      activeLocale:      state.activeLocale,
+      adminCredentials:  state.adminCredentials,
+    };
+
+    const res = await fetch("/api/store", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => `HTTP ${res.status}`);
+      console.error("[StoreHydration] Sauvegarde échouée:", res.status, errText);
+      if (typeof window !== "undefined" && window.location.pathname.startsWith("/admin")) {
+        window.dispatchEvent(
+          new CustomEvent("woodiz-save-error", {
+            detail: `Erreur sauvegarde (${res.status}): ${errText.slice(0, 120)}`,
+          })
+        );
+      }
+      return;
+    }
+
+    const json = await res.json().catch(() => ({}));
+
+    // Mettre à jour les IDs (nouveaux produits) sans déclencher un nouveau save
+    if (json?.savedProducts?.length) {
+      isApplyingServerData = true;
+      useWoodizStore.setState({ products: json.savedProducts });
+      isApplyingServerData = false;
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("woodiz-save-ok"));
+    }
+  } catch (e) {
+    console.error("[StoreHydration] Erreur réseau:", e);
+    if (typeof window !== "undefined" && window.location.pathname.startsWith("/admin")) {
+      window.dispatchEvent(
+        new CustomEvent("woodiz-save-error", {
+          detail: `Erreur réseau: ${String(e).slice(0, 120)}`,
+        })
+      );
+    }
+  }
+}
+
+// ─── Composant ───────────────────────────────────────────────────────────────
 
 export default function StoreHydration() {
   const initialized = useRef(false);
@@ -73,67 +104,47 @@ export default function StoreHydration() {
     initialized.current = true;
 
     async function init() {
-      try {
-        const raw = localStorage.getItem("woodiz-store");
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          const state = parsed?.state;
-          let changed = false;
-          if (state?.products) {
-            state.products = state.products.map((p: any) => {
-              if (p.img?.startsWith("data:")) {
-                const key = imgKey("product", p.id);
-                saveImage(key, p.img);
-                changed = true;
-                return { ...p, img: `__idb:product:${p.id}` };
-              }
-              return p;
-            });
-          }
-          if (state?.settings?.sliderSlides) {
-            state.settings.sliderSlides = state.settings.sliderSlides.map((s: any, i: number) => {
-              if (s.type === "image" && s.value?.startsWith("data:")) {
-                saveImage(`slider:${i}`, s.value);
-                changed = true;
-                return { ...s, value: `__idb:slider:${i}` };
-              }
-              return s;
-            });
-          }
-          if (changed) localStorage.setItem("woodiz-store", JSON.stringify(parsed));
-        }
-      } catch (e) {
-        console.warn("Store migration failed:", e);
-        try { localStorage.removeItem("woodiz-store"); } catch {}
+      // 1. Charger les données depuis MySQL
+      const data = await loadFromDB();
+
+      if (data) {
+        // Appliquer sans déclencher de save intermédiaire
+        isApplyingServerData = true;
+        if (data.settings)
+          useWoodizStore.setState((s) => ({ settings: { ...s.settings, ...data.settings } }));
+        if (data.categories)        useWoodizStore.setState({ categories: data.categories });
+        if (data.products)          useWoodizStore.setState({ products: data.products });
+        if (data.promos)            useWoodizStore.setState({ promos: data.promos });
+        if (data.faqs)              useWoodizStore.setState({ faqs: data.faqs });
+        if (data.legalPages)        useWoodizStore.setState({ legalPages: data.legalPages });
+        if (data.reviews)           useWoodizStore.setState({ reviews: data.reviews });
+        if (data.googleReviewPopup) useWoodizStore.setState({ googleReviewPopup: data.googleReviewPopup });
+        if (data.translations)      useWoodizStore.setState({ translations: data.translations });
+        if (data.adminCredentials)  useWoodizStore.setState({ adminCredentials: data.adminCredentials });
+        isApplyingServerData = false;
       }
 
-      useWoodizStore.persist.rehydrate();
+      // 2. Notifier que les données sont prêtes
+      window.dispatchEvent(new CustomEvent("woodiz-kv-ready"));
 
-      const kvData = await loadFromKV();
-      if (kvData) {
-        if (kvData.settings) useWoodizStore.setState((s) => ({ settings: { ...s.settings, ...kvData.settings } }));
-        if (kvData.categories) useWoodizStore.setState({ categories: kvData.categories });
-        if (kvData.products) useWoodizStore.setState({ products: kvData.products });
-        if (kvData.promos) useWoodizStore.setState({ promos: kvData.promos });
-        if (kvData.faqs) useWoodizStore.setState({ faqs: kvData.faqs });
-        if (kvData.legalPages) useWoodizStore.setState({ legalPages: kvData.legalPages });
-        if (kvData.reviews) useWoodizStore.setState({ reviews: kvData.reviews });
-        if (kvData.googleReviewPopup) useWoodizStore.setState({ googleReviewPopup: kvData.googleReviewPopup });
-        if (kvData.translations) useWoodizStore.setState({ translations: kvData.translations });
-        if (kvData.adminCredentials) useWoodizStore.setState({ adminCredentials: kvData.adminCredentials });
-      }
-
-      const manualChoice = localStorage.getItem("woodiz-locale-manual");
-      if (!manualChoice) {
+      // 3. Détecter la langue du navigateur (sauf choix manuel)
+      const manualLocale = localStorage.getItem("woodiz-locale-manual");
+      if (!manualLocale) {
         const store = useWoodizStore.getState();
-        const supported = store.translations.filter((t) => t.enabled !== false).map((t) => t.locale);
+        const supported = store.translations
+          .filter((t) => t.enabled !== false)
+          .map((t) => t.locale);
         const detected = detectLocale(supported);
-        if (detected && detected !== store.activeLocale) store.setLocale(detected);
+        if (detected && detected !== store.activeLocale) {
+          store.setLocale(detected);
+        }
       }
 
+      // 4. Sauvegarder les changements avec debounce (1.5s)
       useWoodizStore.subscribe((state) => {
-        if (kvSaveTimeout) clearTimeout(kvSaveTimeout);
-        kvSaveTimeout = setTimeout(() => saveToKV(state), 1500);
+        if (isApplyingServerData) return;
+        if (saveTimeout) clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(() => saveToDB(state), 1500);
       });
     }
 

@@ -30,6 +30,12 @@ function isValidImgSrc(src?: string): boolean {
   }
 }
 
+/** Skip Next.js image optimizer for external URLs — laisse le browser fetch directement.
+ *  Cellar, Unsplash, etc. sont servis avec leurs propres CDN — inutile de passer par /_next/image */
+function shouldUnoptimize(src: string): boolean {
+  return src.startsWith("data:") || src.startsWith("http:") || src.startsWith("https:");
+}
+
 export default function ProductCard({ product, primaryColor, onOpen, vertical = false }: ProductCardProps) {
   const { activeLocale, t } = useWoodizStore();
   const [mounted, setMounted] = useState(false);
@@ -84,7 +90,7 @@ export default function ProductCard({ product, primaryColor, onOpen, vertical = 
       >
         {/* Thumbnail 1:1 */}
         <div className="relative w-20 h-20 flex-shrink-0 rounded-xl overflow-hidden bg-amber-50">
-          <Image src={imgSrc} alt={displayName} fill className="object-cover" sizes="80px" unoptimized={imgSrc.startsWith("data:")} />
+          <Image src={imgSrc} alt={displayName} fill className="object-cover" sizes="80px" unoptimized={shouldUnoptimize(imgSrc)} />
           {product.badge && (
             <span className="absolute top-1 left-1 text-[8px] font-bold px-1.5 py-0.5 rounded-full text-white uppercase"
               style={{ background: product.badgeColor || primaryColor }}>
@@ -129,7 +135,7 @@ export default function ProductCard({ product, primaryColor, onOpen, vertical = 
             fill
             className="object-cover transition-transform duration-500 group-hover:scale-110"
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-            unoptimized={imgSrc.startsWith("data:")}
+            unoptimized={shouldUnoptimize(imgSrc)}
           />
         </div>
 

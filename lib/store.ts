@@ -4,7 +4,7 @@ import { persist } from "zustand/middleware";
 
 export interface NotificationBar { enabled: boolean; text: string; bgColor: string; textColor: string; link?: string; closeable?: boolean; style?: "bar" | "floating"; }
 export interface AppBanner { enabled: boolean; icon?: string; iconBg?: string; title: string; subtitle: string; buttonText: string; buttonLink: string; buttonBg?: string; buttonTextColor?: string; bgColor?: string; textColor?: string; closeable?: boolean; }
-export interface SliderSlide { type: "image" | "color"; value: string; customTitle?: string; customSubtitle?: string; useCustomText?: boolean; textSizeTitle?: "sm"|"md"|"lg"|"xl"|"2xl"; textSizeSubtitle?: "xs"|"sm"|"md"|"lg"; }
+export interface SliderSlide { type: "image" | "color"; value: string; customTitle?: string; customSubtitle?: string; useCustomText?: boolean; textSizeTitle?: "sm"|"md"|"lg"|"xl"|"2xl"; textSizeSubtitle?: "xs"|"sm"|"md"|"lg"; translations?: Record<string, { title?: string; subtitle?: string }>; }
 export interface FAQ { id: number; question: string; answer: string; order: number; active: boolean; translations?: Record<string, { question: string; answer: string }>; }
 export interface LegalPage { id: "mentions"|"cgu"|"privacy"; title: string; content: string; enabled: boolean; }
 export interface CustomerReview { id: number; name: string; rating: number; text: string; date: string; avatar?: string; active: boolean; order: number; }
@@ -32,7 +32,7 @@ export interface Category { id: string; name: string; icon: string; iconUrl?: st
 export interface Product { id: number; name: string; category: string; desc: string; price: number; badge: string; badgeColor: string; allergens: string[]; allergenTranslations?: Record<string, string[]>; img: string; inStock: boolean; order: number; featured?: boolean; translations?: Record<string, { name: string; desc: string }>; seoTitle?: string; seoDescription?: string; }
 export interface Toast { msg: string; type: "success"|"error"|"info"; }
 export type Locale = string;
-export interface Translation { locale: Locale; label: string; flag: string; strings: Record<string, string>; }
+export interface Translation { locale: Locale; label: string; flag: string; enabled: boolean; strings: Record<string, string>; }
 
 export const DEFAULT_FR_STRINGS: Record<string, string> = {
   "nav.search_placeholder": "Rechercher une pizza...", "nav.reviews": "avis",
@@ -212,10 +212,10 @@ export const DEFAULT_ES_STRINGS: Record<string, string> = {
 };
 
 export const DEFAULT_TRANSLATIONS: Translation[] = [
-  { locale: "fr", label: "Français", flag: "🇫🇷", strings: DEFAULT_FR_STRINGS },
-  { locale: "en", label: "English", flag: "🇬🇧", strings: DEFAULT_EN_STRINGS },
-  { locale: "it", label: "Italiano", flag: "🇮🇹", strings: DEFAULT_IT_STRINGS },
-  { locale: "es", label: "Español", flag: "🇪🇸", strings: DEFAULT_ES_STRINGS },
+  { locale: "fr", label: "Français", flag: "🇫🇷", enabled: true, strings: DEFAULT_FR_STRINGS },
+  { locale: "en", label: "English", flag: "🇬🇧", enabled: true, strings: DEFAULT_EN_STRINGS },
+  { locale: "it", label: "Italiano", flag: "🇮🇹", enabled: true, strings: DEFAULT_IT_STRINGS },
+  { locale: "es", label: "Español", flag: "🇪🇸", enabled: true, strings: DEFAULT_ES_STRINGS },
 ];
 
 export const DEFAULT_SLIDER_SLIDES: SliderSlide[] = [
@@ -350,7 +350,7 @@ export const DEFAULT_PRODUCTS: Product[] = [
 
 export interface AdminCredentials { username: string; password: string; }
 
-interface WoodizStore {
+export interface WoodizStore {
   settings: SiteSettings; categories: Category[]; products: Product[]; promos: Promo[];
   faqs: FAQ[]; legalPages: LegalPage[]; reviews: CustomerReview[]; googleReviewPopup: GoogleReviewPopup;
   toast: Toast | null; translations: Translation[]; activeLocale: Locale; adminCredentials: AdminCredentials;
@@ -364,7 +364,7 @@ interface WoodizStore {
   saveLegalPage: (page: LegalPage) => void;
   saveReview: (review: CustomerReview) => void; deleteReview: (id: number) => void; toggleReview: (id: number) => void; reorderReviews: (reviews: CustomerReview[]) => void;
   saveGoogleReviewPopup: (popup: GoogleReviewPopup) => void;
-  setLocale: (locale: Locale) => void; saveTranslation: (translation: Translation) => void; deleteTranslation: (locale: Locale) => void;
+  setLocale: (locale: Locale) => void; saveTranslation: (translation: Translation) => void; deleteTranslation: (locale: Locale) => void; toggleTranslation: (locale: Locale) => void;
   t: (key: string) => string;
   getCategoryName: (categoryId: string) => string;
   getProductName: (productId: number) => string;
@@ -413,6 +413,7 @@ export const useWoodizStore = create<WoodizStore>()(
       },
       saveTranslation: (translation) => { set((s) => { const exists = s.translations.find((t) => t.locale === translation.locale); return { translations: exists ? s.translations.map((t) => (t.locale === translation.locale ? translation : t)) : [...s.translations, translation] }; }); get().showToast("Langue sauvegardée ✓"); },
       deleteTranslation: (locale) => { if (locale === "fr") return; set((s) => ({ translations: s.translations.filter((t) => t.locale !== locale), activeLocale: s.activeLocale === locale ? "fr" : s.activeLocale })); get().showToast("Langue supprimée", "error"); },
+      toggleTranslation: (locale) => { if (locale === "fr") return; set((s) => ({ translations: s.translations.map((t) => t.locale === locale ? { ...t, enabled: !t.enabled } : t), activeLocale: s.activeLocale === locale && s.translations.find(t=>t.locale===locale)?.enabled ? "fr" : s.activeLocale })); get().showToast("Langue mise à jour ✓"); },
       t: (key) => { const { translations, activeLocale } = get(); const translation = translations.find((t) => t.locale === activeLocale); if (translation?.strings[key]) return translation.strings[key]; const fr = translations.find((t) => t.locale === "fr"); return fr?.strings[key] ?? DEFAULT_FR_STRINGS[key] ?? key; },
       getCategoryName: (categoryId) => { const { categories, activeLocale } = get(); const cat = categories.find((c) => c.id === categoryId); if (!cat) return categoryId; if (activeLocale !== "fr" && cat.translations?.[activeLocale]?.name) return cat.translations[activeLocale].name; return cat.name; },
       getProductName: (productId) => { const { products, activeLocale } = get(); const p = products.find((p) => p.id === productId); if (!p) return ""; if (activeLocale !== "fr" && p.translations?.[activeLocale]?.name) return p.translations[activeLocale].name; return p.name; },
@@ -425,7 +426,7 @@ export const useWoodizStore = create<WoodizStore>()(
     {
       name: "woodiz-store",
       skipHydration: true,
-      version: 11,
+      version: 12,
       // Strip base64 images before saving to localStorage (prevents QuotaExceededError)
       // Uploaded images are saved in IndexedDB via lib/imageDb.ts
       partialize: (state) => ({
@@ -433,6 +434,10 @@ export const useWoodizStore = create<WoodizStore>()(
         products: state.products.map(p => ({
           ...p,
           img: p.img?.startsWith("data:") ? `__idb:product:${p.id}` : p.img,
+        })),
+        categories: state.categories.map(c => ({
+          ...c,
+          iconUrl: c.iconUrl?.startsWith("data:") ? `__idb:category:${c.id}` : c.iconUrl,
         })),
         settings: {
           ...state.settings,
@@ -476,7 +481,7 @@ export const useWoodizStore = create<WoodizStore>()(
         }
         // v8: new notification fields, promo type/link, category iconUrl, productDisplayMode
         if (version < 8) {
-          if (state.settings?.notificationBar && !state.settings.notificationBar.closeable !== undefined) {
+          if (state.settings?.notificationBar && state.settings.notificationBar.closeable === undefined) {
             state.settings.notificationBar = { closeable: true, style: "bar", link: "", ...state.settings.notificationBar };
           }
           if (!state.settings?.productDisplayMode) state.settings = { ...state.settings, productDisplayMode: "grid" };
@@ -508,6 +513,15 @@ export const useWoodizStore = create<WoodizStore>()(
             state.translations = state.translations.map((t: any) => ({
               ...t,
               strings: { ...(defaults[t.locale] || DEFAULT_FR_STRINGS), ...t.strings }
+            }));
+          }
+        }
+        // v12: translation.enabled field + storeSchedule closedDays
+        if (version < 12) {
+          if (state.translations) {
+            state.translations = state.translations.map((t: any) => ({
+              enabled: true,
+              ...t,
             }));
           }
         }
