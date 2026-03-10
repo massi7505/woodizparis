@@ -98,7 +98,7 @@ export default function Home() {
                 const locale = mounted ? activeLocale : "fr";
                 const promoTitle = locale !== "fr" && promo.translations?.[locale]?.title ? promo.translations[locale].title : promo.title;
                 const promoBadge = locale !== "fr" && promo.translations?.[locale]?.badge ? promo.translations[locale].badge : promo.badge;
-                const priceColor = (promo as any).priceColor || promo.textColor;
+                const priceColor = promo.textColor;
 
                 if (promo.type === "banner") {
                   const BannerWrapper = promo.link ? "a" : "div";
