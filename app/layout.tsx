@@ -4,6 +4,7 @@ import "./globals.css";
 import StoreHydration from "@/components/client/StoreHydration";
 import ImageLoader from "@/components/client/ImageLoader";
 import HydrationGuard from "@/components/client/HydrationGuard";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://woodiz.fr";
 
@@ -85,6 +86,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <HydrationGuard>
           {children}
         </HydrationGuard>
+        <SpeedInsights />
       </body>
     </html>
   );
